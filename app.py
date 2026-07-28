@@ -3,18 +3,30 @@ from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_ollama import OllamaEmbeddings, OllamaLLM
-from langchain_core.prompts import PromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from operator import itemgetter
 import os
 import tempfile
 from fpdf import FPDF
 
+# Türkçe karakterleri İngilizceye çeviren minik kurtarıcı fonksiyonumuz
+def turkce_karakter_temizle(metin):
+    ceviriler = {
+        'ğ': 'g', 'Ğ': 'G',
+        'ü': 'u', 'Ü': 'U',
+        'ş': 's', 'Ş': 'S',
+        'ı': 'i', 'İ': 'I',
+        'ö': 'o', 'Ö': 'O',
+        'ç': 'c', 'Ç': 'C'
+    }
+    for tr, eng in ceviriler.items():
+        metin = metin.replace(tr, eng)
+    return metin
+
 st.set_page_config(page_title="Ultimate YBS Asistanı", page_icon="🚀", layout="wide")
 
-# Oturum Yönetimi
+# Oturum Yönetimi (Mesajları en üste aldık ki hemen tanısın)
 if 'ad' not in st.session_state: st.session_state.ad = ""
 if 'soyad' not in st.session_state: st.session_state.soyad = ""
+if "messages" not in st.session_state: st.session_state.messages = [] 
 
 with st.sidebar:
     st.header("👤 Kullanıcı Profili")
@@ -24,16 +36,6 @@ with st.sidebar:
     st.header("📂 Dosya Havuzu")
     yuklenen_dosyalar = st.file_uploader("Belge yükle (PDF/Word)", type=["pdf", "docx"], accept_multiple_files=True)
     st.markdown("---")
-    if st.button("Raporu PDF İndir"):
-        if "messages" in st.session_state:
-            pdf = FPDF()
-            pdf.add_page()
-            pdf.set_font("Arial", size=12)
-            pdf.cell(200, 10, txt=f"Analiz Raporu - {st.session_state.ad} {st.session_state.soyad}", ln=True, align='C')
-            for msg in st.session_state.messages:
-                pdf.multi_cell(0, 10, txt=f"{msg['role'].upper()}: {msg['content']}")
-            pdf.output("rapor.pdf")
-            st.success("rapor.pdf oluşturuldu!")
 
 @st.cache_resource
 def setup_rag(dosya_listesi):
@@ -57,8 +59,6 @@ def setup_rag(dosya_listesi):
 
 if yuklenen_dosyalar:
     retriever, llm = setup_rag(yuklenen_dosyalar)
-    
-    if "messages" not in st.session_state: st.session_state.messages = []
 
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]): st.markdown(msg["content"])
@@ -79,3 +79,34 @@ if yuklenen_dosyalar:
         st.session_state.messages.append({"role": "assistant", "content": cevap})
 else:
     st.info("👈 Belgeleri yükle ve sohbete başla.")
+
+# 🔥 BUTON MANTIĞINI EN ALTA ALDIK: Cevap biter bitmez anında görünecek!
+if len(st.session_state.messages) > 0:
+    with st.sidebar:
+        st.markdown("### 📊 Raporlama")
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", size=12)
+        
+        # Başlığı temizleyip PDF'e yazıyoruz
+        baslik = f"Analiz Raporu - {st.session_state.ad} {st.session_state.soyad}"
+        temiz_baslik = turkce_karakter_temizle(baslik)
+        pdf.cell(200, 10, txt=temiz_baslik, ln=True, align='C')
+        
+        # Mesajları (Sohbeti) temizleyip PDF'e yazıyoruz
+        for msg in st.session_state.messages:
+            satir = f"{msg['role'].upper()}: {msg['content']}"
+            temiz_satir = turkce_karakter_temizle(satir)
+            pdf.multi_cell(0, 10, txt=temiz_satir)
+            
+        pdf.output("rapor.pdf") 
+        
+        with open("rapor.pdf", "rb") as pdf_dosyasi:
+            PDFbyte = pdf_dosyasi.read()
+
+        st.download_button(
+            label="📥 Raporu PDF İndir",
+            data=PDFbyte,
+            file_name="Kurumsal_Analiz_Raporu.pdf",
+            mime="application/octet-stream"
+        )
